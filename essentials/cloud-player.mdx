@@ -3,7 +3,7 @@ title: "Cloud Player"
 description: "Interact with CloudPlayers."
 ---
 
-## Get an online player by UUID / name
+## Get an Online Player by UUID or Name
 
 ```kotlin
 val player = CloudPlayerManager.getPlayer("Notch") // or use an uuid
@@ -13,32 +13,30 @@ val uuid = UUID.fromString("069a79f4-44e9-4726-a5be-fca90e38aaf5")
 val other = CloudPlayer[uuid]
 ```
 
-You can also convert a platform player wich implements kyori's `Audience` to a `CloudPlayer` :
+You can also convert a platform player that implements Kyori's `Audience` interface into a `CloudPlayer`:
 
 ```kotlin
 val platformPlayer: Audience = ...;
 val cloudPlayer: CloudPlayer? = platformPlayer.toCloudPlayer()
 ```
 
-Now you can do some fun things with the player\!
+## AFK and Play Session
 
-## AFK & Play session
-
-You can check whether a player is AFK or not by simply invoking the following method on a `CloudPlayer` :
+Check whether a player is AFK:
 
 ```kotlin
 val isAfk: Boolean = player.isAfk()
 ```
 
-You also may want to check how long the current player has been playing on it's current server. You can easily get the current play duration by invoking:
+You can also check how long the current player has been playing on their current server:
 
 ```kotlin
 val sessionDuration: Duration = player.currentSessionDuration() // suspend
 ```
 
-## Modifying the player pdc
+## Modify the Player PDC
 
-While you can only read the pdc on an `OfflineCloudPlayer` you can modify the pdc on an online `CloudPlayer`:
+While you can only read the PDC on an `OfflineCloudPlayer`, you can modify it on an online `CloudPlayer`:
 
 ```kotlin
 val key = key("my-plugin", "some-data-key")
@@ -47,9 +45,9 @@ player.withPersistentData { // this: PersistentPlayerDataContainer — suspend
 }
 ```
 
-## Check connected server
+## Check Connected Server
 
-Sometime you may want to check whether a player is in a server group or on a specific server. You can do this:
+Sometimes you may want to check whether a player is in a server group or on a specific server:
 
 ```kotlin
 val server: CloudServer = player.currentServer()
@@ -59,7 +57,7 @@ val inGroup: Boolean = player.isInGroup(server.group)
 
 ## Disconnecting a player
 
-When you want to disconnect the player from the network you have two options. You can either disconnect them normal or you can silently kick them without the player noticing:
+You can disconnect a player normally with a message or silently without them noticing:
 
 <CodeGroup>
 
@@ -77,9 +75,9 @@ player.disconnectSilent()
 
 </CodeGroup>
 
-## Teleporting
+## Teleport a Player
 
-You can also teleport a player across the network.
+You can teleport a player across the network:
 
 <CodeGroup>
 
@@ -95,7 +93,7 @@ val success: Boolean = player.teleport(target)
 
 </CodeGroup>
 
-## Checking permissions
+## Check Permissions
 
 You can also check whether a cloud player has specific permisison:
 
@@ -103,9 +101,9 @@ You can also check whether a cloud player has specific permisison:
 val state: Boolean = player.hasPermission("my.permission")
 ```
 
-## Permission depending messages / sounds
+### Permission-Based Messages and Sounds
 
-Sometime you may want to send a message or sound only if the player has specific permission. The `CloudPlayer` provides some handy methods for that:
+Sometimes you may want to send a message or play a sound only if the player has a specific permission. The `CloudPlayer` provides helper methods for that:
 
 ```kotlin
 player.sendMessage(text("Message"), "some.permission")
