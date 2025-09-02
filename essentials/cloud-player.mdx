@@ -7,6 +7,10 @@ description: "Description of your new file."
 
 ```kotlin
 val player = CloudPlayerManager.getPlayer("Notch") // or use an uuid
+
+// or use the operator overload on CloudPlayer
+val uuid = UUID.fromString("069a79f4-44e9-4726-a5be-fca90e38aaf5")
+val other = CloudPlayer[uuid]
 ```
 
 You can also convert a platform player wich implements kyori's `Audience` to a `CloudPlayer` :
