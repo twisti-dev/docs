@@ -1,0 +1,17 @@
+---
+title: "Cloud Player"
+description: "Description of your new file."
+---
+
+## Get an online player by UUID / name
+
+```kotlin
+val player = CloudPlayerManager.getPlayer("Notch") // or use an uuid
+```
+
+You can also convert a platform player wich implements kyori's `Audience` to a `CloudPlayer` :
+
+```kotlin
+val platformPlayer: Audience = ...;
+val cloudPlayer: CloudPlayer? = platformPlayer.toCloudPlayer()
+```
