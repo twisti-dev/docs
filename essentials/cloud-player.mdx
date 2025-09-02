@@ -90,3 +90,20 @@ val success: Boolean = player.teleport(target)
 ```
 
 </CodeGroup>
+
+## Checking permissions
+
+You can also check whether a cloud player has specific permisison:
+
+```kotlin
+val state: Boolean = player.hasPermission("my.permission")
+```
+
+## Permission depending messages / sounds
+
+Sometime you may want to send a message or sound only if the player has specific permission. The `CloudPlayer` provides some handy methods for that:
+
+```kotlin
+player.sendMessage(text("Message"), "some.permission")
+player.playSound(sound {...}, Sound.Emitter.self(), "some.other.permission")
+```
