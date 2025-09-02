@@ -15,3 +15,77 @@ You can also convert a platform player wich implements kyori's `Audience` to a `
 val platformPlayer: Audience = ...;
 val cloudPlayer: CloudPlayer? = platformPlayer.toCloudPlayer()
 ```
+
+Now you can do some fun things with the player\!
+
+## AFK & Play session
+
+You can check whether a player is AFK or not by simply invoking the following method on a `CloudPlayer` :
+
+```kotlin
+val isAfk: Boolean = player.isAfk()
+```
+
+You also may want to check how long the current player has been playing on it's current server. You can easily get the current play duration by invoking:
+
+```kotlin
+val sessionDuration: Duration = player.currentSessionDuration() // suspend
+```
+
+## Modifying the player pdc
+
+While you can only read the pdc on an `OfflineCloudPlayer` you can modify the pdc on an online `CloudPlayer`:
+
+```kotlin
+val key = key("my-plugin", "some-data-key")
+player.withPersistentData { // this: PersistentPlayerDataContainer — suspend 
+  setBoolean(key, true)
+}
+```
+
+## Check connected server
+
+Sometime you may want to check whether a player is in a server group or on a specific server. You can do this:
+
+```kotlin
+val server: CloudServer = player.currentServer()
+val onServer: Boolean = player.isOnServer(server)
+val inGroup: Boolean = player.isInGroup(server.group)
+```
+
+## Disconnecting a player
+
+When you want to disconnect the player from the network you have two options. You can either disconnect them normal or you can silently kick them without the player noticing:
+
+<CodeGroup>
+
+```kotlin Normal
+player.disconnect(buildText {
+  // build disconnect message
+  error("You have been kicked!")
+})
+```
+
+
+```kotlin Silent
+```
+
+</CodeGroup>
+
+## Teleporting
+
+You can also teleport a player across the network.
+
+<CodeGroup>
+
+```kotlin Location
+val success: Boolean = player.teleport(worldUuid, 100.0, 10.0, 200.0)
+```
+
+
+``` kotlin Player
+val target: CloudPlayer = ...;
+val success: Boolean = player.teleport(target)
+```
+
+</CodeGroup>
