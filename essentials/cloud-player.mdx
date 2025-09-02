@@ -68,6 +68,7 @@ player.disconnect(buildText {
 
 
 ```kotlin Silent
+player.disconnectSilent()
 ```
 
 </CodeGroup>
@@ -83,7 +84,7 @@ val success: Boolean = player.teleport(worldUuid, 100.0, 10.0, 200.0)
 ```
 
 
-``` kotlin Player
+```kotlin Player
 val target: CloudPlayer = ...;
 val success: Boolean = player.teleport(target)
 ```
