@@ -24,6 +24,7 @@
           {
             "group": "Essentials",
             "pages": [
+              "essentials/cloud-player",
               "essentials/markdown",
               "essentials/code",
               "essentials/images",
