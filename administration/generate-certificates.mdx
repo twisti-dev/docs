@@ -1,6 +1,6 @@
 ---
 title: "Certificate Generation Guide"
-description: "Description of your new file."
+description: "This guide explains how to generate and manage SSL/TLS certificates for your Netty-based server and clients using OpenSSL. Properly generated certificates ensure secure communication between your server and clients."
 sidebarTitle: "Certificate Generation"
 ---
 
@@ -12,6 +12,16 @@ sidebarTitle: "Certificate Generation"
 ```bash
 openssl version
 ```
+
+## **Step-by-Step Guide**
+
+<Note>
+  If you already have a server set up and only need to add a new client, you can skip directly to **Step 4. **Ensure the following files are already present in your working directory:
+
+  - `openssl.cnf`
+  - `ca.key`
+  - `ca.crt`
+</Note>
 
 <Steps>
   <Step title="Create an OpenSSL Configuration File">
@@ -85,7 +95,54 @@ openssl version
   </Step>
   <Step title="Generate Client Certificates (repeatable for each client)">
     Modify `openssl.cnf` by changing the `CN` to your client name `client01`, `client02`, etc.):
+
+    ```powershell
+    CN = test-server01
+    ```
+
+    Then run:
+
+    ```powershell
+    openssl genrsa -out client.key 2048
+    openssl req -new -key client.key -out client.csr -config openssl.cnf
+    openssl x509 -req -in client.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out client.crt -days 365 -extfile openssl.cnf -extensions v3_req
+    ```
+
+    **Files produced:**
+
+    - `client.key`: Client's private key (keep secret and only on the client).
   </Step>
 </Steps>
 
-### 
+## File Management
+
+### Files to Keep and Their Usage
+
+| File         | Purpose                                      | Store on                             |
+| ------------ | -------------------------------------------- | ------------------------------------ |
+| `ca.key`     | CA private key (needed for signing)          | Secure offline storage (never share) |
+| `ca.crt`     | CA certificate (trusted by all participants) | Server and Clients                   |
+| `server.key` | Server private key                           | Server (secure)                      |
+| `server.crt` | Server certificate (signed by CA)            | Server (send to clients)             |
+| `client.key` | Client private key                           | Client private key                   |
+| `client.crt` | Client certificate (signed by CA)            | -/-                                  |
+
+### **Directory Structure**
+
+**On Server:**
+
+```
+certificates/
+├── server.key
+├── server.crt
+└── ca.crt
+```
+
+**On Client:**
+
+```
+certificates/
+├── client.key
+├── client.crt
+└── ca.crt
+```
