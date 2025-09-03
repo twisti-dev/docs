@@ -105,5 +105,8 @@
       "website": "https://server.castcrafter.de/",
       "discord": "https://discord.gg/castcrafter"
     }
+  },
+  "banner": {
+    "content": "In development"
   }
 }
