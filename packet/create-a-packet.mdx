@@ -1,0 +1,70 @@
+---
+title: "Create a Packet"
+description: "Description of your new file."
+---
+
+<Steps>
+  <Step title="Create class">
+    Start by creating your class with the data you want to send:
+
+    ```kotlin
+    class TestPacket(val test: String)
+    ```
+  </Step>
+  <Step title="Extend netty packet">
+    Now you have to extend `NettyPacket` or another variant like `RespondingNettyPacket` / `ResponseNettyPacket` wich are covered here.
+
+    ```kotlin
+    import dev.slne.surf.cloud.api.common.netty.packet.NettyPacket
+    
+    class TestPacket(val test: String) : NettyPacket()
+    ```
+  </Step>
+  <Step title="Packet Meta">
+    In order for your packet to be recognized and can be sent over the network you have to annotate it with `@SurfNettyPacket` which provides essential metadata for your packet.
+
+    ```kotlin
+    import dev.slne.surf.cloud.api.common.meta.SurfNettyPacket
+    
+    @SurfNettyPacket("test:bidirectional:test", PacketFlow.BIDIRECTIONAL)
+    class TestPacket(val test: String) : NettyPacket()
+    ```
+
+    Now what did we just do? In the annotation you have to specify two parameters—the other ones you should generally never touch. The first one is a unique id wich follows this schema `plugin-name:packetflow:packet-name`. So in our case the plugin name is `test`the packetflow is `bidirectional`and the packet is named `test`. While any other string content should also work this is the convention to minimize the possibillity that two plugins define packets with the same id. The seccond parameter is the packet flow. This essentially means in which direction the packet "flow". Meaning if the packet is intended to only be send from a client to the server the packet flow would be `SERVERBOUND` because the packet is bounded to the server. The goes for `CLIENTBOUND`when a packet is sent from the server to the client. There are sometimes cases where you want to sent a packet to a server or a client. Here you can use `BIDIRECTIONAL`wich allows the packet to flow in both directions.
+  </Step>
+  <Step title="Packet codec">
+    The last step is to create a packet codec. The packet codec is used to encode and decode your packet. There are two different ways to create a codec—either manually or you use kotlinx serialization.
+
+    <Tabs>
+      <Tab title="Kotlinx">
+        When you use kotlinx serialization the only thing you have to do is annote your packet with kotlinx's `@Serializable`annotation.
+
+        ```kotlin
+        import kotlinx.serialization.Serializable
+        
+        @SurfNettyPacket("test:bidirectional:test", PacketFlow.BIDIRECTIONAL)
+        @Serializable
+        class TestPacket(val test: String) : NettyPacket()
+        ```
+
+        <Info>
+          There are many types supported beyond the basic primitive types from kotlin. All you have to do is annotate the property with the `@Contextual`annotation from kotlin. You can see all other supported type [here](https://github.com/SLNE-Development/surf-cloud/tree/master/surf-cloud-api/surf-cloud-api-common/src/main/kotlin/dev/slne/surf/cloud/api/common/netty/network/codec/kotlinx).
+        </Info>
+      </Tab>
+      <Tab title="Stream codec">
+        The stream codec requires you to expose a field in your companion object wich is either named `STREAM_CODEC`or has the annotation `@PacketCodec`. Furthermore, the field should be publically accessable and return a `StreamCodec<SurfByteBuf, MyPacket>`.
+
+        There are two options for you to create a stream codec.
+
+        <AccordionGroup>
+          <Accordion title="With methods" icon="sparkles">
+            
+          </Accordion>
+          <Accordion title="Via composite" icon="sparkles">
+            
+          </Accordion>
+        </AccordionGroup>
+      </Tab>
+    </Tabs>
+  </Step>
+</Steps>
