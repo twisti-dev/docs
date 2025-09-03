@@ -24,9 +24,9 @@
           {
             "group": "Administration",
             "pages": [
-              
+              "administration/generate-certifactes"
             ]
-          }
+          },
           {
             "group": "Essentials",
             "pages": [
