@@ -22,6 +22,12 @@
             ]
           },
           {
+            "group": "Administration",
+            "pages": [
+              
+            ]
+          }
+          {
             "group": "Essentials",
             "pages": [
               "essentials/cloud-player",
