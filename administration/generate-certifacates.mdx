@@ -2,3 +2,89 @@
 title: "Certificate Generation Guide"
 description: "Description of your new file."
 ---
+
+## Prerequisites
+
+- Install [OpenSSL](https://slproweb.com/products/Win32OpenSSL.html) or use WSL/Git Bash.
+- Ensure OpenSSL is available in your command prompt:
+
+```bash
+openssl version
+```
+
+<Steps>
+  <Step title="Create an OpenSSL Configuration File">
+    Create a file named `openssl.cnf` in your working directory:
+
+    ```powershell
+    [ req ]
+    default_bits       = 2048
+    distinguished_name = req_distinguished_name
+    req_extensions     = v3_req
+    prompt             = no
+    
+    [ req_distinguished_name ]
+    C  = DE
+    ST = Remote
+    L  = Internet
+    O  = Surf Cloud
+    CN = YOUR_SERVER_IP_OR_DNS
+    
+    [ v3_req ]
+    subjectAltName = @alt_names
+    keyUsage = critical, digitalSignature, keyEncipherment
+    extendedKeyUsage = serverAuth, clientAuth
+    
+    [ alt_names ]
+    IP.1 = YOUR_SERVER_IP
+    DNS.1 = YOUR_SERVER_DNS
+    ```
+
+    Replace `YOUR_SERVER_IP` and `YOUR_SERVER_DNS` with your actual server IP address and DNS name.
+
+    <Accordion title="Example" icon="book-open-reader">
+      ```powershell
+      CN = 192.168.1.23
+      
+      [ alt_names ]
+      IP.1 = 192.168.1.23
+      DNS.1 = myserver.local
+      ```
+    </Accordion>
+  </Step>
+  <Step title="Generate Your Own Certificate Authority (CA)">
+    Run the following commands once to create your CA:
+
+    ```shellscript
+    openssl genrsa -out ca.key 2048
+    openssl req -x509 -new -nodes -key ca.key -sha256 -days 3650 -out ca.crt -subj "/C=DE/ST=Remote/L=Internet/O=Surf Cloud/CN=SurfCloud CA"
+    ```
+
+    <Warning>
+      - `ca.key`: Private key of your CA (keep this secret and safe).
+      - `ca.crt`: Public certificate of your CA (clients and server use this to establish trust).
+    </Warning>
+  </Step>
+  <Step title="Generate Server Certificate">
+    ```shellscript
+    # Generate private key
+    openssl genrsa -out server.key 2048
+    
+    # Generate CSR (Certificate Signing Request)
+    openssl req -new -key server.key -out server.csr -config openssl.cnf
+    
+    # Sign CSR with your CA
+    openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt -days 365 -extfile openssl.cnf -extensions v3_req
+    ```
+
+    **Files Produced:**
+
+    - `server.key`: Server's private key (use on your Netty server).
+    - `server.crt`: Server's signed certificate (distribute to clients).
+  </Step>
+  <Step title="Generate Client Certificates (repeatable for each client)">
+    Modify `openssl.cnf` by changing the `CN` to your client name `client01`, `client02`, etc.):
+  </Step>
+</Steps>
+
+### 
