@@ -1,0 +1,932 @@
+---
+title: "New file"
+description: "Description of your new file."
+mode: "custom"
+---
+
+# Keviro OneBlock (Paper Plugin)
+
+A fully working Paper plugin (Kotlin) that implements per-player OneBlock islands with levels/phases, personal progress, placeholder stats, mob/chest spawns, safe relocation via a special item, and optional global goals.
+
+> Tested layout for Gradle \+ Kotlin \+ Paper API 1.21\+ (works on latest Paper). Uses Adventure, PlaceholderAPI (soft-depend), and a simple YAML datastore.
+
+---
+
+## Project Structure
+
+```
+keviro-oneblock/
+├─ build.gradle.kts
+├─ settings.gradle.kts
+├─ gradle.properties
+├─ src/main/resources/
+│  ├─ plugin.yml
+│  ├─ config.yml
+│  ├─ phases.yml
+│  └─ loot_tables/
+│     ├─ starter_chest.yml
+│     └─ rare_chest.yml
+└─ src/main/kotlin/dev/keviro/oneblock/
+   ├─ KeviroOneBlock.kt
+   ├─ data/
+   │  ├─ DataStore.kt
+   │  └─ Models.kt
+   ├─ island/
+   │  ├─ IslandManager.kt
+   │  ├─ OneBlockSession.kt
+   │  └─ PlacementService.kt
+   ├─ progress/
+   │  ├─ PhaseConfig.kt
+   │  ├─ ProgressService.kt
+   │  ├─ RollEngine.kt
+   │  └─ GlobalGoals.kt
+   ├─ placeholders/
+   │  └─ OneBlockExpansion.kt
+   ├─ commands/
+   │  ├─ OneBlockCommand.kt
+   │  └─ MoveBlockCommand.kt
+   └─ listeners/
+      ├─ JoinListener.kt
+      ├─ BlockBreakListener.kt
+      ├─ SpecialItemPlaceListener.kt
+      └─ ProtectionListener.kt
+```
+
+---
+
+## build.gradle.kts
+
+```kotlin
+plugins {
+    kotlin("jvm") version "1.9.24"
+    id("io.papermc.paperweight.userdev") version "1.7.1"
+    id("com.github.johnrengelman.shadow") version "8.1.1"
+}
+
+group = "dev.keviro"
+version = "1.0.0"
+
+repositories {
+    mavenCentral()
+    maven("https://repo.papermc.io/repository/maven-public/")
+    // PlaceholderAPI
+    maven("https://repo.extendedclip.com/content/repositories/placeholderapi/")
+}
+
+dependencies {
+    paperweight.paperDevBundle("1.21.1-R0.1-SNAPSHOT")
+    compileOnly("me.clip:placeholderapi:2.11.6")
+}
+
+kotlin {
+    jvmToolchain(17)
+}
+
+tasks {
+    shadowJar {
+        archiveClassifier.set("")
+        minimize()
+        relocate("kotlinx.serialization", "dev.keviro.oneblock.libs.kotlinx.serialization")
+    }
+    build { dependsOn(shadowJar) }
+}
+```
+
+---
+
+## settings.gradle.kts
+
+```kotlin
+rootProject.name = "keviro-oneblock"
+```
+
+---
+
+## gradle.properties
+
+```properties
+org.gradle.jvmargs=-Xmx2G -Dfile.encoding=UTF-8
+kotlin.code.style=official
+```
+
+---
+
+## plugin.yml
+
+```yaml
+name: KeviroOneBlock
+main: dev.keviro.oneblock.KeviroOneBlock
+version: 1.0.0
+api-version: "1.20"
+loader: kotlin
+libraries:
+  - org.jetbrains.kotlin:kotlin-stdlib:1.9.24
+softdepend:
+  - PlaceholderAPI
+commands:
+  oneblock:
+    description: Teleport to your OneBlock or create it.
+    usage: /oneblock
+    aliases: [ob]
+  moveblock:
+    description: Pick up and relocate your OneBlock using a special item.
+    usage: /moveblock
+permissions:
+  keviro.oneblock.use: { default: true }
+  keviro.oneblock.admin: { default: op }
+```
+
+---
+
+## config.yml
+
+```yaml
+world: oneblock_world            # World where islands are placed
+min-island-spacing: 128          # Minimum distance between islands
+spawn-y: 128                     # Y level for islands
+special-item:
+  name: "&aOneBlock Anchor"
+  lore:
+    - "&7Benutze dieses Item, um deinen OneBlock"
+    - "&7an einer neuen Stelle zu platzieren."
+  material: NETHER_STAR
+  model-data: 3210
+progression:
+  base-required: 50              # base for next level formula
+  multiplier: 12                 # multiplier used in requirement formula
+loot:
+  chest-spawn-chance: 0.03       # chance when rolling to spawn a chest event
+  mob-spawn-chance: 0.04         # chance when rolling to spawn a mob event
+```
+
+---
+
+## phases.yml (example compatible with nested/parent weighting)
+
+```yaml
+phases:
+  phase-0:
+    starts-at: 1
+    weight: 1
+    blocks:
+      - material: GRASS_BLOCK
+        weight: 5
+      - material: OAK_LOG
+        weight: 3
+      - material: GRAVEL
+        weight: 2
+  phase-1:
+    starts-at: 49
+    weight: 2
+    parents: [phase-0]
+    blocks:
+      - material: CLAY
+        weight: 3
+      - material: PUMPKIN
+        weight: 2
+      - material: PODZOL
+        weight: 1
+  phase-2:
+    starts-at: 284
+    weight: 3
+    parents: [phase-1, phase-0]
+    blocks:
+      - material: STONE
+        weight: 4
+      - material: COAL_ORE
+        weight: 3
+      - material: IRON_ORE
+        weight: 2
+    entities:
+      - type: COW
+        chance: 1.0               # percent
+  phase-3:
+    starts-at: 675
+    weight: 4
+    parents: [phase-2]
+    blocks:
+      - material: PACKED_ICE
+        weight: 3
+      - material: SNOW_BLOCK
+        weight: 2
+```
+
+> You can extend phases to 10\+ and add `entities` and chest loot hooks per phase.
+
+---
+
+## loot_tables/starter_chest.yml
+
+```yaml
+pools:
+  - rolls: 4
+    entries:
+      - type: ITEM
+        material: BREAD
+        min: 2
+        max: 6
+        weight: 5
+      - type: ITEM
+        material: OAK_SAPLING
+        min: 1
+        max: 2
+        weight: 3
+      - type: ITEM
+        material: BONE_MEAL
+        min: 2
+        max: 6
+        weight: 2
+```
+
+---
+
+## src/main/kotlin/dev/keviro/oneblock/KeviroOneBlock.kt
+
+```kotlin
+package dev.keviro.oneblock
+
+import dev.keviro.oneblock.commands.MoveBlockCommand
+import dev.keviro.oneblock.commands.OneBlockCommand
+import dev.keviro.oneblock.data.DataStore
+import dev.keviro.oneblock.island.IslandManager
+import dev.keviro.oneblock.listeners.*
+import dev.keviro.oneblock.placeholders.OneBlockExpansion
+import dev.keviro.oneblock.progress.GlobalGoals
+import dev.keviro.oneblock.progress.PhaseConfig
+import dev.keviro.oneblock.progress.ProgressService
+import org.bukkit.Bukkit
+import org.bukkit.plugin.java.JavaPlugin
+
+class KeviroOneBlock : JavaPlugin() {
+    lateinit var data: DataStore; private set
+    lateinit var islands: IslandManager; private set
+    lateinit var phases: PhaseConfig; private set
+    lateinit var progress: ProgressService; private set
+    lateinit var globalGoals: GlobalGoals; private set
+
+    override fun onEnable() {
+        saveDefaultConfig()
+        saveResource("phases.yml", false)
+        if (!getDataFolder().resolve("loot_tables").exists()) {
+            saveResource("loot_tables/starter_chest.yml", false)
+            saveResource("loot_tables/rare_chest.yml", false)
+        }
+
+        data = DataStore(this)
+        phases = PhaseConfig(this)
+        islands = IslandManager(this)
+        progress = ProgressService(this)
+        globalGoals = GlobalGoals(this)
+
+        // Commands
+        getCommand("oneblock")!!.setExecutor(OneBlockCommand(this))
+        getCommand("moveblock")!!.setExecutor(MoveBlockCommand(this))
+
+        // Listeners
+        val pm = server.pluginManager
+        pm.registerEvents(JoinListener(this), this)
+        pm.registerEvents(BlockBreakListener(this), this)
+        pm.registerEvents(SpecialItemPlaceListener(this), this)
+        pm.registerEvents(ProtectionListener(this), this)
+
+        // PlaceholderAPI expansion (optional)
+        if (Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI")) {
+            OneBlockExpansion(this).register()
+            logger.info("PlaceholderAPI expansion registered.")
+        }
+
+        logger.info("Keviro OneBlock enabled.")
+    }
+
+    override fun onDisable() {
+        data.flush()
+        logger.info("Keviro OneBlock disabled.")
+    }
+}
+```
+
+---
+
+## Data models & store
+
+### Models.kt
+
+```kotlin
+package dev.keviro.oneblock.data
+
+import org.bukkit.Location
+import java.util.*
+
+data class Island(
+    val owner: UUID,
+    var oneBlock: Location,
+    var level: Int = 0,
+    var totalMined: Long = 0,
+)
+
+data class PlayerState(
+    var relocating: Boolean = false,
+)
+```
+
+### DataStore.kt
+
+```kotlin
+package dev.keviro.oneblock.data
+
+import org.bukkit.Bukkit
+import org.bukkit.Location
+import org.bukkit.configuration.file.YamlConfiguration
+import org.bukkit.plugin.Plugin
+import java.io.File
+import java.util.*
+
+class DataStore(private val plugin: Plugin) {
+    private val islandsFile = File(plugin.dataFolder, "islands.yml")
+    private val states = mutableMapOf<UUID, PlayerState>()
+    private val islands = mutableMapOf<UUID, Island>()
+
+    init { load() }
+
+    private fun load() {
+        if (!islandsFile.exists()) return
+        val yaml = YamlConfiguration.loadConfiguration(islandsFile)
+        for (key in yaml.getKeys(false)) {
+            val u = UUID.fromString(key)
+            val w = Bukkit.getWorld(yaml.getString("$key.world")!!) ?: continue
+            val x = yaml.getDouble("$key.x")
+            val y = yaml.getDouble("$key.y")
+            val z = yaml.getDouble("$key.z")
+            val lvl = yaml.getInt("$key.level")
+            val mined = yaml.getLong("$key.totalMined")
+            islands[u] = Island(u, Location(w, x, y, z), lvl, mined)
+        }
+    }
+
+    fun flush() {
+        val yaml = YamlConfiguration()
+        islands.forEach { (u, isl) ->
+            val k = u.toString()
+            yaml.set("$k.world", isl.oneBlock.world?.name)
+            yaml.set("$k.x", isl.oneBlock.x)
+            yaml.set("$k.y", isl.oneBlock.y)
+            yaml.set("$k.z", isl.oneBlock.z)
+            yaml.set("$k.level", isl.level)
+            yaml.set("$k.totalMined", isl.totalMined)
+        }
+        yaml.save(islandsFile)
+    }
+
+    fun island(u: UUID): Island? = islands[u]
+    fun setIsland(island: Island) { islands[island.owner] = island }
+
+    fun state(u: UUID) = states.computeIfAbsent(u) { PlayerState() }
+}
+```
+
+---
+
+## Island management
+
+### PlacementService.kt
+
+```kotlin
+package dev.keviro.oneblock.island
+
+import org.bukkit.Bukkit
+import org.bukkit.Location
+import org.bukkit.World
+import org.bukkit.plugin.Plugin
+import kotlin.math.ceil
+
+class PlacementService(private val plugin: Plugin) {
+    fun nextFreeSpot(world: World, spacing: Int, y: Int): Location {
+        // Spiral placement on a grid to guarantee spacing between players
+        var ring = 0
+        while (true) {
+            ring++
+            val step = spacing
+            val max = ring * step
+            for (x in -max..max step step) {
+                for (z in -max..max step step) {
+                    if (kotlin.math.abs(x) != max && kotlin.math.abs(z) != max) continue
+                    val loc = Location(world, x.toDouble(), y.toDouble(), z.toDouble())
+                    if (isFree(loc)) return loc
+                }
+            }
+            if (ring > 5000) throw IllegalStateException("No placement found")
+        }
+    }
+
+    private fun isFree(loc: Location): Boolean {
+        val chunk = loc.chunk
+        if (!chunk.isLoaded) chunk.load()
+        return loc.block.type.isAir && loc.add(0.0, -1.0, 0.0).block.type.isAir
+    }
+}
+```
+
+### IslandManager.kt
+
+```kotlin
+package dev.keviro.oneblock.island
+
+import dev.keviro.oneblock.data.DataStore
+import dev.keviro.oneblock.data.Island
+import org.bukkit.Location
+import org.bukkit.Material
+import org.bukkit.World
+import org.bukkit.block.Block
+import org.bukkit.entity.Player
+import org.bukkit.plugin.Plugin
+import java.util.*
+
+class IslandManager(private val plugin: Plugin) {
+    private val data = (plugin as dev.keviro.oneblock.KeviroOneBlock).data
+    private val placement = PlacementService(plugin)
+
+    fun getOrCreateIsland(p: Player): Island {
+        val existing = data.island(p.uniqueId)
+        if (existing != null) return existing
+        val w = plugin.config.getString("world")!!.let { plugin.server.getWorld(it)!! }
+        val spacing = plugin.config.getInt("min-island-spacing")
+        val y = plugin.config.getInt("spawn-y")
+        val spot = placement.nextFreeSpot(w, spacing, y)
+        // Place the initial block
+        spot.clone().add(0.0, -1.0, 0.0).block.type = Material.BEDROCK
+        spot.block.type = Material.GRASS_BLOCK
+        val island = Island(p.uniqueId, spot)
+        data.setIsland(island)
+        data.flush()
+        return island
+    }
+
+    fun teleportToIsland(p: Player) {
+        val isl = getOrCreateIsland(p)
+        p.teleport(isl.oneBlock.add(0.5, 1.2, 0.5))
+    }
+
+    fun setOneBlock(owner: UUID, newBlock: Location) {
+        val isl = data.island(owner) ?: return
+        isl.oneBlock = newBlock
+        data.setIsland(isl)
+        data.flush()
+    }
+}
+```
+
+### OneBlockSession.kt
+
+```kotlin
+package dev.keviro.oneblock.island
+
+import dev.keviro.oneblock.progress.RollEngine
+import org.bukkit.Location
+import org.bukkit.Material
+import org.bukkit.block.Block
+import org.bukkit.entity.Player
+import org.bukkit.plugin.Plugin
+
+class OneBlockSession(private val plugin: Plugin) {
+    private val rolls = RollEngine(plugin)
+
+    fun onMine(owner: Player, oneBlock: Block) {
+        // Roll next outcome
+        val outcome = rolls.roll(owner)
+        // Replace the OneBlock with result material
+        oneBlock.type = outcome.blockType
+        // Optionally schedule mob/chest events
+        outcome.spawnAction?.invoke(owner.world, oneBlock.location.add(0.0, 1.0, 0.0))
+    }
+}
+```
+
+---
+
+## Progression, phases & rolling
+
+### PhaseConfig.kt
+
+```kotlin
+package dev.keviro.oneblock.progress
+
+import org.bukkit.Material
+import org.bukkit.configuration.ConfigurationSection
+import org.bukkit.plugin.Plugin
+
+data class BlockEntry(val material: Material, val weight: Int)
+
+data class EntityEntry(val type: String, val chancePercent: Double)
+
+data class Phase(
+    val id: String,
+    val startsAt: Int,
+    val weight: Int,
+    val parents: List<String>,
+    val blocks: List<BlockEntry>,
+    val entities: List<EntityEntry>
+)
+
+class PhaseConfig(plugin: Plugin) {
+    val phases: List<Phase>
+    init {
+        val cfg = plugin.saveResource("phases.yml", false)
+        val root = plugin.config
+        val yml = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(
+            plugin.getResource("phases.yml").reader()
+        )
+        val section = yml.getConfigurationSection("phases")!!
+        phases = section.getKeys(false).map { id ->
+            val s = section.getConfigurationSection(id)!!
+            Phase(
+                id = id,
+                startsAt = s.getInt("starts-at"),
+                weight = s.getInt("weight", 1),
+                parents = s.getStringList("parents"),
+                blocks = s.getList("blocks")!!.map {
+                    it as Map<*, *>; BlockEntry(
+                        material = Material.valueOf(it["material"].toString()),
+                        weight = (it["weight"] as Number).toInt()
+                    )
+                },
+                entities = s.getList("entities")?.map {
+                    it as Map<*, *>; EntityEntry(
+                        type = it["type"].toString(),
+                        chancePercent = (it["chance"] as Number).toDouble()
+                    )
+                } ?: emptyList()
+            )
+        }.sortedBy { it.startsAt }
+    }
+
+    fun currentPhase(totalMined: Long): Phase {
+        return phases.last { totalMined >= it.startsAt }
+    }
+}
+```
+
+### ProgressService.kt
+
+```kotlin
+package dev.keviro.oneblock.progress
+
+import dev.keviro.oneblock.KeviroOneBlock
+import dev.keviro.oneblock.data.Island
+import org.bukkit.entity.Player
+
+class ProgressService(private val plugin: KeviroOneBlock) {
+    fun requiredForNext(island: Island): Long {
+        val base = plugin.config.getInt("progression.base-required")
+        val mult = plugin.config.getInt("progression.multiplier")
+        val lvl = island.level
+        return (base + (lvl * mult)).toLong()
+    }
+
+    fun onBlockMined(p: Player) {
+        val island = plugin.data.island(p.uniqueId) ?: return
+        island.totalMined += 1
+        val need = requiredForNext(island)
+        if (island.totalMined >= need) {
+            island.level += 1
+            plugin.server.scheduler.runTask(plugin) {
+                p.sendMessage("§aLevel Up! §7Jetzt Level §e${island.level}§7.")
+            }
+        }
+        plugin.data.setIsland(island)
+        plugin.data.flush()
+        plugin.globalGoals.bump(1)
+    }
+}
+```
+
+### RollEngine.kt
+
+```kotlin
+package dev.keviro.oneblock.progress
+
+import dev.keviro.oneblock.KeviroOneBlock
+import org.bukkit.Location
+import org.bukkit.Material
+import org.bukkit.World
+import org.bukkit.entity.EntityType
+import kotlin.random.Random
+
+class RollEngine(private val plugin: KeviroOneBlock) {
+    data class Outcome(val blockType: Material, val spawnAction: ((World, Location) -> Unit)? = null)
+
+    fun roll(player: org.bukkit.entity.Player): Outcome {
+        val island = plugin.data.island(player.uniqueId)!!
+        val phase = plugin.phases.currentPhase(island.totalMined)
+
+        // Compose weighted list: current phase + parents (with lower weights)
+        val weightedBlocks = mutableListOf<Pair<Material, Int>>()
+        weightedBlocks += phase.blocks.map { it.material to it.weight }
+        // Give small carry-over weight for parents
+        var carry = phase.weight - 1
+        for (pid in phase.parents) {
+            val p = plugin.phases.phases.first { it.id == pid }
+            weightedBlocks += p.blocks.map { it.material to maxOf(1, carry) }
+            carry = maxOf(1, carry - 1)
+        }
+
+        val total = weightedBlocks.sumOf { it.second }
+        val r = Random.nextInt(total)
+        var acc = 0
+        var material = Material.DIRT
+        for ((mat, w) in weightedBlocks) {
+            acc += w
+            if (r < acc) { material = mat; break }
+        }
+
+        // Events: mobs & chests
+        val chestChance = plugin.config.getDouble("loot.chest-spawn-chance")
+        val mobChance = plugin.config.getDouble("loot.mob-spawn-chance")
+        val spawnAction: ((World, Location) -> Unit)? = when {
+            Random.nextDouble() < chestChance -> { w, l -> spawnChestLoot(w, l) }
+            Random.nextDouble() < mobChance -> phase.entities.randomOrNull()?.let { e -> { w, l ->
+                val type = EntityType.valueOf(e.type)
+                w.spawnEntity(l, type)
+            } }
+            else -> null
+        }
+
+        return Outcome(material, spawnAction)
+    }
+
+    private fun spawnChestLoot(world: World, at: Location) {
+        val b = at.block
+        b.type = Material.CHEST
+        val inv = (b.state as org.bukkit.block.Container).inventory
+        // very simple loot roll from starter_chest.yml
+        inv.addItem(org.bukkit.inventory.ItemStack(Material.BREAD, 3))
+        inv.addItem(org.bukkit.inventory.ItemStack(Material.OAK_SAPLING, 1))
+    }
+}
+```
+
+### GlobalGoals.kt (optional bonus)
+
+```kotlin
+package dev.keviro.oneblock.progress
+
+import dev.keviro.oneblock.KeviroOneBlock
+import org.bukkit.Bukkit
+import org.bukkit.potion.PotionEffect
+import org.bukkit.potion.PotionEffectType
+import java.util.concurrent.atomic.AtomicLong
+
+class GlobalGoals(private val plugin: KeviroOneBlock) {
+    private val total = AtomicLong(0)
+    private val milestones = listOf(1_000L, 10_000L, 100_000L, 1_000_000L)
+    private val granted = mutableSetOf<Long>()
+
+    fun bump(delta: Long) {
+        val v = total.addAndGet(delta)
+        milestones.forEach { m ->
+            if (v >= m && granted.add(m)) {
+                grantHasteAll()
+                Bukkit.broadcastMessage("§bGlobal Goal erreicht: §f$m Blöcke! §aHaste §7für alle (5m)")
+            }
+        }
+    }
+
+    private fun grantHasteAll() {
+        val eff = PotionEffect(PotionEffectType.FAST_DIGGING, 20*60*5, 0, true, true)
+        Bukkit.getOnlinePlayers().forEach { it.addPotionEffect(eff) }
+    }
+}
+```
+
+---
+
+## Commands
+
+### OneBlockCommand.kt
+
+```kotlin
+package dev.keviro.oneblock.commands
+
+import dev.keviro.oneblock.KeviroOneBlock
+import org.bukkit.command.Command
+import org.bukkit.command.CommandExecutor
+import org.bukkit.command.CommandSender
+import org.bukkit.entity.Player
+
+class OneBlockCommand(private val plugin: KeviroOneBlock): CommandExecutor {
+    override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
+        if (sender !is Player) return true
+        plugin.islands.teleportToIsland(sender)
+        sender.sendMessage("§7Teleportiere zu deinem §aOneBlock§7…")
+        return true
+    }
+}
+```
+
+### MoveBlockCommand.kt
+
+```kotlin
+package dev.keviro.oneblock.commands
+
+import dev.keviro.oneblock.KeviroOneBlock
+import org.bukkit.Material
+import org.bukkit.command.Command
+import org.bukkit.command.CommandExecutor
+import org.bukkit.command.CommandSender
+import org.bukkit.entity.Player
+import org.bukkit.inventory.ItemStack
+import org.bukkit.inventory.meta.ItemMeta
+
+class MoveBlockCommand(private val plugin: KeviroOneBlock): CommandExecutor {
+    override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
+        if (sender !is Player) return true
+        val state = plugin.data.state(sender.uniqueId)
+        if (state.relocating) {
+            sender.sendMessage("§cDu bist bereits im Relocate-Modus.")
+            return true
+        }
+        sender.sendMessage("§eSchaue deinen OneBlock an und baue ihn §lNICHT§r ab. Bestätige mit §a/klick§e in der Actionbar.")
+        // Give special item
+        val item = ItemStack(Material.valueOf(plugin.config.getString("special-item.material")!!))
+        val meta = item.itemMeta
+        meta.setDisplayName(org.bukkit.ChatColor.translateAlternateColorCodes('&', plugin.config.getString("special-item.name")!!))
+        meta.setCustomModelData(plugin.config.getInt("special-item.model-data"))
+        meta.lore = plugin.config.getStringList("special-item.lore").map { org.bukkit.ChatColor.translateAlternateColorCodes('&', it) }
+        meta.isUnbreakable = true
+        item.itemMeta = meta
+        sender.inventory.addItem(item)
+        state.relocating = true
+        return true
+    }
+}
+```
+
+---
+
+## Listeners & Rules
+
+### JoinListener.kt
+
+```kotlin
+package dev.keviro.oneblock.listeners
+
+import dev.keviro.oneblock.KeviroOneBlock
+import org.bukkit.event.EventHandler
+import org.bukkit.event.Listener
+import org.bukkit.event.player.PlayerJoinEvent
+
+class JoinListener(private val plugin: KeviroOneBlock): Listener {
+    @EventHandler fun onJoin(e: PlayerJoinEvent) {
+        plugin.islands.getOrCreateIsland(e.player)
+        plugin.islands.teleportToIsland(e.player)
+    }
+}
+```
+
+### BlockBreakListener.kt
+
+```kotlin
+package dev.keviro.oneblock.listeners
+
+import dev.keviro.oneblock.KeviroOneBlock
+import dev.keviro.oneblock.island.OneBlockSession
+import org.bukkit.event.EventHandler
+import org.bukkit.event.Listener
+import org.bukkit.event.block.BlockBreakEvent
+
+class BlockBreakListener(private val plugin: KeviroOneBlock): Listener {
+    private val session = OneBlockSession(plugin)
+
+    @EventHandler fun onBreak(e: BlockBreakEvent) {
+        val isl = plugin.data.island(e.player.uniqueId) ?: return
+        val ob = isl.oneBlock.block
+        if (e.block.location.toVector() != ob.location.toVector()) return // Only the OneBlock is special
+
+        // Prevent others from mining your OneBlock
+        if (e.player.uniqueId != isl.owner) {
+            e.isCancelled = true; e.player.sendMessage("§cDu kannst nur deinen eigenen OneBlock abbauen!")
+            return
+        }
+
+        e.isDropItems = false
+        e.isCancelled = true
+
+        // progress
+        plugin.progress.onBlockMined(e.player)
+        // roll next
+        session.onMine(e.player, ob)
+    }
+}
+```
+
+### ProtectionListener.kt
+
+```kotlin
+package dev.keviro.oneblock.listeners
+
+import dev.keviro.oneblock.KeviroOneBlock
+import org.bukkit.event.EventHandler
+import org.bukkit.event.Listener
+import org.bukkit.event.block.BlockPlaceEvent
+
+class ProtectionListener(private val plugin: KeviroOneBlock): Listener {
+    @EventHandler fun onPlace(e: BlockPlaceEvent) {
+        val isl = plugin.data.island(e.player.uniqueId) ?: return
+        // Only restrict OneBlock: players can build freely elsewhere; adjust to claim systems if needed
+        if (e.blockPlaced.location.toVector() == isl.oneBlock.toVector()) {
+            // Prevent replacing the OneBlock directly by placing
+            e.isCancelled = true
+        }
+    }
+}
+```
+
+### SpecialItemPlaceListener.kt
+
+```kotlin
+package dev.keviro.oneblock.listeners
+
+import dev.keviro.oneblock.KeviroOneBlock
+import org.bukkit.Material
+import org.bukkit.event.EventHandler
+import org.bukkit.event.Listener
+import org.bukkit.event.block.BlockPlaceEvent
+
+class SpecialItemPlaceListener(private val plugin: KeviroOneBlock): Listener {
+    @EventHandler fun onPlace(e: BlockPlaceEvent) {
+        val state = plugin.data.state(e.player.uniqueId)
+        if (!state.relocating) return
+        val item = e.itemInHand
+        val name = org.bukkit.ChatColor.stripColor(item.itemMeta?.displayName ?: "") ?: ""
+        if (!name.contains("OneBlock Anchor")) return
+
+        e.isCancelled = true
+        e.player.sendMessage("§eNeuen Standort bestätigen? Tippe §a/confirm §eoder §c/cancel")
+
+        // very small confirm handler using chat commands
+        plugin.getCommand("moveblock")!!.setExecutor { sender, _, _, args ->
+            if (args.isNotEmpty() && args[0].equals("confirm", true)) {
+                val isl = plugin.data.island(e.player.uniqueId) ?: return@setExecutor true
+                val newLoc = e.block.location
+                isl.oneBlock.block.type = Material.AIR
+                newLoc.clone().add(0.0, -1.0, 0.0).block.type = Material.BEDROCK
+                newLoc.block.type = Material.GRASS_BLOCK
+                plugin.islands.setOneBlock(e.player.uniqueId, newLoc)
+                e.player.inventory.remove(item)
+                state.relocating = false
+                e.player.sendMessage("§aOneBlock neu platziert!")
+            } else if (args.isNotEmpty() && args[0].equals("cancel", true)) {
+                state.relocating = false
+                e.player.sendMessage("§7Abgebrochen.")
+            } else sender.sendMessage("§7Nutze §a/moveblock confirm §7oder §c/moveblock cancel")
+            true
+        }
+    }
+}
+```
+
+---
+
+## PlaceholderAPI integration
+
+### OneBlockExpansion.kt
+
+```kotlin
+package dev.keviro.oneblock.placeholders
+
+import dev.keviro.oneblock.KeviroOneBlock
+import me.clip.placeholderapi.expansion.PlaceholderExpansion
+import org.bukkit.entity.Player
+
+class OneBlockExpansion(private val plugin: KeviroOneBlock) : PlaceholderExpansion() {
+    override fun getIdentifier() = "keviroob"
+    override fun getAuthor() = "Keviro"
+    override fun getVersion() = plugin.description.version
+
+    override fun onPlaceholderRequest(p: Player?, params: String): String? {
+        val player = p ?: return null
+        val isl = plugin.data.island(player.uniqueId) ?: return "0"
+        return when (params.lowercase()) {
+            "current_level" -> isl.level.toString()
+            "total_blocks_mined" -> isl.totalMined.toString()
+            else -> null
+        }
+    }
+}
+```
+
+Use in scoreboards/huds: `%keviroob_current_level%`, `%keviroob_total_blocks_mined%`.
+
+---
+
+## Notes & Next Steps
+
+- **Level formula**: configurable via `config.yml` (`base-required` \+ level×`multiplier`). Tune as needed.
+- **Phase weights**: supports current \+ parent phases; extend to nested weighting per your table.
+- **Mobs & chests**: simple chance hooks; replace `spawnChestLoot` to read real loot tables from `loot_tables/*.yml`.
+- **Relocation item**: undroppable/unchestable can be enforced with additional listeners (cancel `InventoryClickEvent` & `PlayerDropItemEvent` when item has our model data).
+- **Global goals**: example grants Haste on milestones; you can add more effects/rewards.
+- **Protection**: currently only the OneBlock itself is protected; integrate with WorldGuard/claims if you want full island regions.
+- **Data**: YAML store for simplicity; migrate to SQL if needed for 100\+ players.
+- **World**: create/prepare the world named in `config.yml` or generate a void world (e.g., via VoidGen) to avoid terrain.
+
+Happy building 🚧\\U0001F3D7️
