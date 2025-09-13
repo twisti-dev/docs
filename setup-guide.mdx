@@ -1,0 +1,187 @@
+---
+title: "Setup Guide"
+description: "Install and configure the Surf Cloud Server and Clients (Velocity and Paper) with MariaDB, Java, and certificates."
+---
+
+# Overview
+
+This guide walks through installing and configuring the Surf Cloud stack:
+
+- the **Cloud Server** (the control plane),
+- the **Velocity** proxy client, and
+- the **Paper** server client.
+
+We set up secure communication with certificates, wire up MariaDB, and explain the required JVM flags and configuration properties.
+
+# Prerequisites
+
+- **MariaDB 10.5 or later.** Each plugin you install requires its **own** database.
+- **One machine that can run a Java application** – Java 21 is recommended. You can use Java 24 to take advantage of the generational ZGC. GraalVM is recommended.
+- **One Velocity proxy** and **one Paper server**.
+- **Network access** between the Cloud Server and all clients.
+- **Permissions** to open the required ports and to write files in the installation directories.
+
+<Info>
+  **Terminology**
+
+  - **Cloud Server** – the main Surf Cloud process that manages nodes and coordinates state.
+  - **Client** – the Surf Cloud platform plugin that runs inside a host application (Velocity or Paper) and connects to the Cloud Server.
+</Info>
+
+# Architecture at a glance
+
+- The Cloud Server exposes two endpoints:
+  - **Ktor HTTP server** for administrative APIs.
+  - **Netty TCP endpoint** for Cloud clients.
+- Each client (Velocity or Paper) connects to the Cloud Server over the Netty endpoint and authenticates with a client certificate.
+- The Cloud Server persists state in MariaDB.
+
+# Set up the Cloud Server
+
+<Steps>
+  <Step title="Download the latest launcher">
+    Download the latest release from GitHub: [SLNE‑Development/surf‑cloud](https://github.com/SLNE-Development/surf-cloud/releases).
+  </Step>
+  <Step title="Choose JVM and memory settings">
+    The Cloud Server benefits from modern garbage collection.
+
+    - Use Java 21 for stability, or Java 24 to enable the generational ZGC.
+    - Allocate at least **2 GB** of heap for test environments. For production, size memory according to your workload and monitor GC behavior.
+
+    **Example startup command** (replace `{{JARFILE}}` and adjust memory):
+
+    ```powershell
+    java -Xms8G -Xmx8G \
+      -XX:+UseZGC -XX:+ZGenerational \
+      -XX:ZCollectionInterval=120 -XX:ZAllocationSpikeTolerance=5 \
+      -XX:MaxDirectMemorySize=4G -XX:+UseStringDeduplication \
+      -XX:+UnlockExperimentalVMOptions -XX:+UseJVMCICompiler \
+      -XX:+AlwaysPreTouch -XX:ReservedCodeCacheSize=512M \
+      -XX:+UseCompressedOops -XX:+UseCompressedClassPointers \
+      -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=./java_pid%p.hprof \
+      -XX:OnOutOfMemoryError="stop" -XX:+UseLargePages \
+      -jar {{JARFILE}} \
+      -Dio.netty.maxDirectMemory=0 -Dterminal.jline=false -Dterminal.ansi=true
+    ```
+
+    <Tip>
+      The example uses an initial and maximum heap of eight gigabytes to illustrate flag shape. You can reduce both `-Xms` and `-Xmx` for smaller environments.
+    </Tip>
+  </Step>
+  <Step title="Start once to generate the baseline files">
+    Run the command. The server will exit with an error because configuration and certificates are not present yet. This is expected and helps create the initial directory structure.
+
+    <Note>
+      Stop the process before you continue so it does not restart while you edit configuration.
+    </Note>
+  </Step>
+  <Step title="Generate certificates and place them in the correct folders">
+    Follow [Generate certificates](/administration/generate-certificates) to create the server and client materials. After generation, place the required certificate and key files in the directories indicated by the console output; it will list exactly which files are needed and where to put them.
+  </Step>
+  <Step title="Edit the server configuration (config.yml)">
+    Open `config.yml` and set the following sections. Field names may differ by version; prefer the exact keys your release documents.
+
+    ```yaml
+    # Ktor (administrative HTTP API)
+    ktor:
+      host: 0.0.0.0               # Address for the HTTP server to bind to
+      port: 8080                  # HTTP port for admin/API traffic
+    
+    # MariaDB connection
+    # Plugin databases are configured in the respective plugin directory
+    database:
+      url: jdbc:mariadb://127.0.0.1:3306/surf_data
+      username: surf
+      password: "<strong-password>"
+    
+    # Netty (binary protocol for clients)
+    netty:
+      host: 0.0.0.0               # Address for client connections
+      port: 6565                  # Must be different from the Ktor port
+    ```
+
+    <Warning>
+      The Netty port **must not** match the Ktor port. Use a dedicated port for client traffic.
+    </Warning>
+  </Step>
+  <Step title="Save and start the Cloud Server">
+    Start the server again with your chosen JVM flags. Confirm that:
+
+    - the Ktor endpoint binds to the configured address and port,
+    - the Netty endpoint is listening for clients, and
+    - the MariaDB connection succeeds and migrations complete.
+  </Step>
+</Steps>
+
+# Set up a Cloud Client (Velocity or Paper)
+
+The client steps are identical for Velocity and Paper, except for the plugin file you install.
+
+<Steps>
+  <Step title="Download the platform‑specific plugin">
+    From the same [releases page](https://github.com/SLNE-Development/surf-cloud/releases), download the plugin that matches your platform (Velocity or Paper).
+  </Step>
+  <Step title="Install the plugin and the Surf API dependency">
+    Place the plugin `.jar` in the platform’s `plugins/` directory, and install the **surf‑api** dependency.
+  </Step>
+  <Step title="Set required JVM system properties">
+    Each client instance must declare a unique name and a category. Add the following system properties to the **startup command** of the host application:
+
+    ```text
+    -Dsurf.cloud.serverName=<unique-name> -Dsurf.cloud.serverCategory=<category>
+    ```
+
+    <Info>
+      **Examples**
+
+      - `-Dsurf.cloud.serverName=lobby-1 -Dsurf.cloud.serverCategory=lobby`
+      - `-Dsurf.cloud.serverName=minigame-3 -Dsurf.cloud.serverCategory=minigame`
+    </Info>
+  </Step>
+  <Step title="Start once to generate the client files">
+    Start the host application. The client will fail to complete startup because configuration and certificates are missing. This is expected.
+  </Step>
+  <Step title="Create a client certificate and place it in the client folder">
+    Use the same certificate authority you used for the server and issue a **client certificate** for this node. Place the certificate and key in the directory where the client expects them.
+  </Step>
+  <Step title="Edit the client configuration">
+    Open the client `config.yml` and set the **Netty** connection to point at the Cloud Server:
+
+    ```yaml
+    netty:
+      host: 203.0.113.10   # Cloud Server address or DNS name
+      port: 6565           # Cloud Server Netty port
+    
+    # Optional role hint for orchestration
+    isLobby: true          # Set to true only on lobby servers
+    ```
+
+    <Note>
+      At least one lobby must be available; otherwise, players cannot join. Setting `isLobby: true` does not change server capabilities. It signals to plugins and orchestration that this server handles lobby traffic so join events route players correctly.
+    </Note>
+  </Step>
+  <Step title="Save and restart the client host">
+    Restart Velocity or Paper. Verify that the client establishes a secure connection to the Cloud Server, and that the server recognizes the node.
+  </Step>
+</Steps>
+
+# Production checklist
+
+- Use strong, unique database credentials and limit privileges to each schema.
+- Store private keys with restrictive permissions and rotate certificates on a schedule.
+- Place the Ktor administrative endpoint behind a firewall or private network.
+- Monitor GC logs, heap usage, thread counts, and connection pools.
+- Back up MariaDB regularly and test restores.
+
+# Troubleshooting
+
+- **The Cloud Server exits on first run.** This is expected when configuration and certificates are missing. Populate `config.yml` and install certificates, then start again.
+- **Port already in use.** Change either the Ktor or Netty port so that they do not collide.
+- **Cannot connect to MariaDB.** Verify host, port, credentials, and firewall rules. Confirm the database exists and the user can connect from the server’s address.
+- **Client fails TLS handshake.** Ensure the client uses a certificate signed by the server’s CA. Check certificate paths and file permissions.
+- **Players cannot join.** Ensure at least one client sets `isLobby: true` and that the client is healthy.
+
+# Reference
+
+- GitHub releases: [SLNE‑Development/surf‑cloud](https://github.com/SLNE-Development/surf-cloud/releases)
+- Certificate guide: [Generate certificates](/administration/generate-certificates)
